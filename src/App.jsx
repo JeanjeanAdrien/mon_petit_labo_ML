@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import ContentPlaceholder from './components/ContentPlaceholder';
 import WhatIsIntelligence from './components/courses/WhatIsIntelligence';
+import AITimelineLab from './components/courses/AITimelineLab';
 
 export default function LearningPlatform() {
   const [activeSection, setActiveSection] = useState(COURSE_STRUCTURE[0].sections[0]);
@@ -68,6 +69,8 @@ export default function LearningPlatform() {
 
               {activeSection.id === 'mod1-theory1' ? (
                 <WhatIsIntelligence />
+              ) : activeSection.id === 'mod1-lab1' ? (
+                <AITimelineLab />
               ) : activeSection.id === 'ml-3' ? (
                 // Exemple : Si c'est la section 'ml-3', on pourrait afficher ton composant précédent ici
                 <ContentPlaceholder title={activeSection.title} type={activeSection.type} />
