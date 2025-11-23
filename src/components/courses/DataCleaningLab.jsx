@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle2, Trash2, Wand2, Search, Award, TrendingUp, Info, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { AlertTriangle, CheckCircle2, Trash2, Wand2, Search, Award, TrendingUp, Info, Sparkles, RotateCcw, Edit2, X } from 'lucide-react';
 
 // Dataset initial avec problèmes variés
 const generateInitialDataset = () => [
@@ -21,18 +21,46 @@ const generateInitialDataset = () => [
 
 const DataCleaningLab = () => {
     const [dataset, setDataset] = useState(generateInitialDataset());
+    const [history, setHistory] = useState([generateInitialDataset()]); // Historique pour Undo
     const [detectedProblems, setDetectedProblems] = useState({});
     const [problemsDetected, setProblemsDetected] = useState(false);
     const [stats, setStats] = useState({ total: 0, fixed: 0 });
     const [badges, setBadges] = useState([]);
     const [showSuccess, setShowSuccess] = useState('');
+    const [editingCell, setEditingCell] = useState(null); // { rowIndex, key, value }
+    const [hoveredProblem, setHoveredProblem] = useState(null); // { rowIndex, key, type }
 
-    // Détection des problèmes
-    const detectProblems = () => {
+    // Sauvegarder l'état dans l'historique
+    const saveToHistory = (newDataset) => {
+        const newHistory = [...history, newDataset];
+        // Limiter l'historique à 10 étapes pour éviter de consommer trop de mémoire
+        if (newHistory.length > 10) newHistory.shift();
+        setHistory(newHistory);
+        setDataset(newDataset);
+    };
+
+    // Annuler la dernière action
+    const undo = () => {
+        if (history.length > 1) {
+            const previousDataset = history[history.length - 2];
+            const newHistory = history.slice(0, -1);
+            setHistory(newHistory);
+            setDataset(previousDataset);
+            // Recalculer les problèmes après undo
+            if (problemsDetected) {
+                // Petit hack : on attend que le state soit mis à jour pour redétecter
+                setTimeout(() => detectProblems(previousDataset), 0);
+            }
+            showSuccessMessage('Action annulée ↩️');
+        }
+    };
+
+    // Détection des problèmes (accepte un dataset optionnel pour le recalcul)
+    const detectProblems = (currentDataset = dataset) => {
         const problems = {};
         let totalProblems = 0;
 
-        dataset.forEach((row, index) => {
+        currentDataset.forEach((row, index) => {
             problems[index] = {
                 nom: [],
                 email: [],
@@ -82,7 +110,7 @@ const DataCleaningLab = () => {
             }
 
             // Vérifier les doublons
-            const duplicates = dataset.filter((r, i) =>
+            const duplicates = currentDataset.filter((r, i) =>
                 i !== index &&
                 r.nom === row.nom &&
                 r.email === row.email
@@ -95,9 +123,23 @@ const DataCleaningLab = () => {
 
         setDetectedProblems(problems);
         setProblemsDetected(true);
-        setStats({ ...stats, total: totalProblems });
-        showSuccessMessage('🔍 Problèmes détectés ! Commence à nettoyer les données.');
+
+        // Calculer les problèmes corrigés par rapport au total initial (estimé à ~25 pour ce dataset)
+        // C'est une simplification, idéalement on garderait le compte initial
+        const initialProblemsCount = 25;
+        setStats({ total: totalProblems, fixed: Math.max(0, initialProblemsCount - totalProblems) });
+
+        if (currentDataset === dataset) { // Afficher le message seulement si déclenché par l'utilisateur
+            showSuccessMessage('🔍 Problèmes détectés ! Survole les cases rouges pour comprendre.');
+        }
     };
+
+    // Effet pour redétecter les problèmes quand le dataset change (si la détection est active)
+    useEffect(() => {
+        if (problemsDetected) {
+            detectProblems(dataset);
+        }
+    }, [dataset]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Supprimer les doublons
     const removeDuplicates = () => {
@@ -110,43 +152,32 @@ const DataCleaningLab = () => {
         });
 
         const removed = dataset.length - cleaned.length;
-        setDataset(cleaned);
-        setStats(prev => ({ ...prev, fixed: prev.fixed + removed }));
-        showSuccessMessage(`✅ ${removed} doublon(s) supprimé(s) !`);
-
-        if (!badges.includes('duplicate_hunter')) {
-            setBadges([...badges, 'duplicate_hunter']);
+        if (removed > 0) {
+            saveToHistory(cleaned);
+            showSuccessMessage(`✅ ${removed} doublon(s) supprimé(s) !`);
+            if (!badges.includes('duplicate_hunter')) setBadges([...badges, 'duplicate_hunter']);
+        } else {
+            showSuccessMessage('Aucun doublon trouvé !');
         }
     };
 
-    // Remplir les valeurs manquantes avec des valeurs par défaut intelligentes
+    // Remplir les valeurs manquantes
     const fillMissingValues = () => {
         let filled = 0;
         const updated = dataset.map(row => {
             const newRow = { ...row };
-
-            if (!newRow.age) {
-                newRow.age = 30; // Âge moyen par défaut
-                filled++;
-            }
-            if (!newRow.ville) {
-                newRow.ville = 'Non spécifié';
-                filled++;
-            }
-            if (!newRow.salaire) {
-                newRow.salaire = 48000; // Salaire médian par défaut
-                filled++;
-            }
-
+            if (!newRow.age) { newRow.age = 30; filled++; }
+            if (!newRow.ville) { newRow.ville = 'Non spécifié'; filled++; }
+            if (!newRow.salaire) { newRow.salaire = 48000; filled++; }
             return newRow;
         });
 
-        setDataset(updated);
-        setStats(prev => ({ ...prev, fixed: prev.fixed + filled }));
-        showSuccessMessage(`✅ ${filled} valeur(s) manquante(s) remplie(s) !`);
-
-        if (!badges.includes('gap_filler')) {
-            setBadges([...badges, 'gap_filler']);
+        if (filled > 0) {
+            saveToHistory(updated);
+            showSuccessMessage(`✅ ${filled} valeur(s) manquante(s) remplie(s) !`);
+            if (!badges.includes('gap_filler')) setBadges([...badges, 'gap_filler']);
+        } else {
+            showSuccessMessage('Aucune valeur manquante !');
         }
     };
 
@@ -155,29 +186,18 @@ const DataCleaningLab = () => {
         let fixed = 0;
         const updated = dataset.map(row => {
             const newRow = { ...row };
-
-            if (newRow.age && newRow.age > 120) {
-                newRow.age = 30; // Remplacer par l'âge moyen
-                fixed++;
-            }
-            if (newRow.age && newRow.age < 0) {
-                newRow.age = Math.abs(newRow.age);
-                fixed++;
-            }
-            if (newRow.salaire && newRow.salaire < 0) {
-                newRow.salaire = Math.abs(newRow.salaire);
-                fixed++;
-            }
-
+            if (newRow.age && newRow.age > 120) { newRow.age = 30; fixed++; }
+            if (newRow.age && newRow.age < 0) { newRow.age = Math.abs(newRow.age); fixed++; }
+            if (newRow.salaire && newRow.salaire < 0) { newRow.salaire = Math.abs(newRow.salaire); fixed++; }
             return newRow;
         });
 
-        setDataset(updated);
-        setStats(prev => ({ ...prev, fixed: prev.fixed + fixed }));
-        showSuccessMessage(`✅ ${fixed} valeur(s) aberrante(s) corrigée(s) !`);
-
-        if (!badges.includes('outlier_slayer')) {
-            setBadges([...badges, 'outlier_slayer']);
+        if (fixed > 0) {
+            saveToHistory(updated);
+            showSuccessMessage(`✅ ${fixed} valeur(s) aberrante(s) corrigée(s) !`);
+            if (!badges.includes('outlier_slayer')) setBadges([...badges, 'outlier_slayer']);
+        } else {
+            showSuccessMessage('Aucune valeur aberrante !');
         }
     };
 
@@ -186,46 +206,67 @@ const DataCleaningLab = () => {
         let normalized = 0;
         const updated = dataset.map(row => {
             const newRow = { ...row };
-
-            // Normaliser le nom (Première lettre majuscule)
             if (newRow.nom) {
                 const words = newRow.nom.toLowerCase().split(' ');
-                newRow.nom = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-                normalized++;
+                const newNom = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                if (newNom !== newRow.nom) { newRow.nom = newNom; normalized++; }
             }
-
-            // Corriger les emails incomplets
             if (newRow.email && !newRow.email.includes('.')) {
                 newRow.email = newRow.email + '.com';
                 normalized++;
             }
-
-            // Normaliser les dates au format YYYY-MM-DD
             if (newRow.dateInscription && !newRow.dateInscription.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                // Essayer de convertir différents formats
                 const parts = newRow.dateInscription.split(/[-/]/);
                 if (parts.length === 3) {
                     if (parts[0].length === 4) {
-                        // Déjà au bon format ou presque
                         newRow.dateInscription = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
                     } else {
-                        // Format DD-MM-YYYY ou DD/MM/YYYY
                         newRow.dateInscription = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
                     }
                     normalized++;
                 }
             }
-
             return newRow;
         });
 
-        setDataset(updated);
-        setStats(prev => ({ ...prev, fixed: prev.fixed + normalized }));
-        showSuccessMessage(`✅ ${normalized} format(s) normalisé(s) !`);
-
-        if (!badges.includes('format_master')) {
-            setBadges([...badges, 'format_master']);
+        if (normalized > 0) {
+            saveToHistory(updated);
+            showSuccessMessage(`✅ ${normalized} format(s) normalisé(s) !`);
+            if (!badges.includes('format_master')) setBadges([...badges, 'format_master']);
+        } else {
+            showSuccessMessage('Formats déjà corrects !');
         }
+    };
+
+    // Édition manuelle
+    const handleCellClick = (rowIndex, key, value) => {
+        setEditingCell({ rowIndex, key, value });
+    };
+
+    const handleCellChange = (e) => {
+        setEditingCell({ ...editingCell, value: e.target.value });
+    };
+
+    const handleCellSave = () => {
+        const updated = [...dataset];
+        // Conversion de type si nécessaire
+        let val = editingCell.value;
+        if (editingCell.key === 'age' || editingCell.key === 'salaire') {
+            val = val === '' ? null : Number(val);
+        }
+
+        updated[editingCell.rowIndex] = {
+            ...updated[editingCell.rowIndex],
+            [editingCell.key]: val
+        };
+        saveToHistory(updated);
+        setEditingCell(null);
+        showSuccessMessage('Modification manuelle enregistrée ✍️');
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') handleCellSave();
+        if (e.key === 'Escape') setEditingCell(null);
     };
 
     // Afficher un message de succès temporaire
@@ -236,20 +277,32 @@ const DataCleaningLab = () => {
 
     // Calculer le score de qualité
     const calculateQualityScore = () => {
-        if (stats.total === 0) return 0;
-        return Math.round((stats.fixed / stats.total) * 100);
+        // Estimation simple : 100 - (nombre de problèmes * 4)
+        // On s'assure que le score est entre 0 et 100
+        const score = Math.max(0, 100 - (stats.total * 4));
+        return score;
     };
 
     const qualityScore = calculateQualityScore();
 
     // Définir les couleurs du problème
     const getProblemColor = (problems) => {
-        if (!problemsDetected || !problems) return '';
+        if (!problemsDetected || !problems || problems.length === 0) return '';
         if (problems.includes('missing')) return 'bg-red-100 border-red-300 text-red-900';
         if (problems.includes('outlier')) return 'bg-orange-100 border-orange-300 text-orange-900';
         if (problems.includes('invalid_format')) return 'bg-yellow-100 border-yellow-300 text-yellow-900';
         if (problems.includes('inconsistent')) return 'bg-purple-100 border-purple-300 text-purple-900';
         return '';
+    };
+
+    // Obtenir le message du tooltip
+    const getTooltipMessage = (problems) => {
+        if (!problems || problems.length === 0) return null;
+        if (problems.includes('missing')) return "Valeur manquante : l'IA ne peut pas apprendre sur du vide !";
+        if (problems.includes('outlier')) return "Valeur aberrante : semble impossible ou extrême.";
+        if (problems.includes('invalid_format')) return "Format invalide : l'ordinateur ne pourra pas lire ça.";
+        if (problems.includes('inconsistent')) return "Incohérence : majuscules/minuscules mélangées.";
+        return null;
     };
 
     const badgeInfo = {
@@ -262,33 +315,38 @@ const DataCleaningLab = () => {
     return (
         <div className="space-y-6">
             {/* Introduction */}
-            <section className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl p-6 border border-emerald-100">
-                <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+            <section className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl p-6 border border-emerald-100 relative overflow-hidden">
+                <div className="flex items-start gap-4 relative z-10">
+                    <div className="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0 shadow-lg">
                         <Wand2 className="w-6 h-6 text-white" />
                     </div>
                     <div>
                         <h2 className="text-2xl font-bold text-slate-900 mb-2">🧪 Labo : Nettoyer un jeu de données</h2>
                         <p className="text-slate-700 leading-relaxed">
-                            Bienvenue dans ton premier laboratoire de Data Science ! Tu as devant toi un jeu de données
-                            contenant des informations sur des clients... mais attention, il est <strong>plein d'erreurs</strong> !
-                            Ta mission : le nettoyer pour le rendre exploitable.
+                            Bienvenue dans ton premier laboratoire de Data Science ! Ce jeu de données est <strong>plein d'erreurs</strong>.
+                            Utilise les outils magiques ou modifie les cases manuellement (clic) pour le nettoyer.
+                            <br />
+                            <span className="text-sm text-emerald-700 font-semibold mt-1 inline-block">
+                                Astuce : Survole les cases rouges pour comprendre l'erreur !
+                            </span>
                         </p>
                     </div>
                 </div>
+                {/* Décoration de fond */}
+                <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-emerald-100 rounded-full opacity-50 blur-xl"></div>
             </section>
 
             {/* Statistiques et Score */}
             <div className="grid md:grid-cols-3 gap-4">
-                <div className="bg-white rounded-lg p-5 border border-slate-200 shadow-sm">
+                <div className="bg-white rounded-lg p-5 border border-slate-200 shadow-sm transition-all hover:shadow-md">
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-slate-600">Problèmes détectés</span>
+                        <span className="text-sm font-medium text-slate-600">Problèmes restants</span>
                         <AlertTriangle className="w-5 h-5 text-orange-500" />
                     </div>
                     <p className="text-3xl font-bold text-slate-900">{stats.total}</p>
                 </div>
 
-                <div className="bg-white rounded-lg p-5 border border-slate-200 shadow-sm">
+                <div className="bg-white rounded-lg p-5 border border-slate-200 shadow-sm transition-all hover:shadow-md">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium text-slate-600">Problèmes résolus</span>
                         <CheckCircle2 className="w-5 h-5 text-emerald-500" />
@@ -296,36 +354,55 @@ const DataCleaningLab = () => {
                     <p className="text-3xl font-bold text-emerald-600">{stats.fixed}</p>
                 </div>
 
-                <div className="bg-white rounded-lg p-5 border border-slate-200 shadow-sm">
+                <div className="bg-white rounded-lg p-5 border border-slate-200 shadow-sm transition-all hover:shadow-md">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium text-slate-600">Score de qualité</span>
                         <TrendingUp className="w-5 h-5 text-blue-500" />
                     </div>
-                    <div className="flex items-baseline gap-2">
-                        <p className="text-3xl font-bold text-blue-600">{qualityScore}%</p>
-                        {qualityScore >= 95 && <span className="text-sm text-emerald-600 font-semibold">🎉 Excellent !</span>}
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+                            <div
+                                className={`h-full rounded-full transition-all duration-1000 ease-out ${qualityScore >= 90 ? 'bg-emerald-500' : qualityScore >= 50 ? 'bg-blue-500' : 'bg-orange-500'}`}
+                                style={{ width: `${qualityScore}%` }}
+                            ></div>
+                        </div>
+                        <span className="text-xl font-bold text-slate-700">{qualityScore}%</span>
                     </div>
                 </div>
             </div>
 
             {/* Message de succès */}
             {showSuccess && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-center gap-3 animate-in fade-in duration-300">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    <p className="text-emerald-800 font-medium">{showSuccess}</p>
+                <div className="fixed bottom-8 right-8 z-50 bg-slate-900 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in slide-in-from-bottom-5 fade-in duration-300">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    <p className="font-medium">{showSuccess}</p>
                 </div>
             )}
 
             {/* Outils de nettoyage */}
             <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                    <Wand2 className="w-5 h-5 text-indigo-500" />
-                    Outils de Nettoyage
-                </h3>
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <Wand2 className="w-5 h-5 text-indigo-500" />
+                        Outils de Nettoyage
+                    </h3>
+
+                    {/* Bouton Undo */}
+                    <button
+                        onClick={undo}
+                        disabled={history.length <= 1}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Annuler la dernière action"
+                    >
+                        <RotateCcw className="w-4 h-4" />
+                        Annuler
+                    </button>
+                </div>
+
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
                     <button
-                        onClick={detectProblems}
-                        className="flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-indigo-600 transition-all shadow-sm hover:shadow-md"
+                        onClick={() => detectProblems()}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-indigo-600 transition-all shadow-sm hover:shadow-md active:scale-95"
                     >
                         <Search className="w-4 h-4" />
                         Détecter les problèmes
@@ -334,7 +411,7 @@ const DataCleaningLab = () => {
                     <button
                         onClick={removeDuplicates}
                         disabled={!problemsDetected}
-                        className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
                     >
                         <Trash2 className="w-4 h-4" />
                         Supprimer doublons
@@ -343,7 +420,7 @@ const DataCleaningLab = () => {
                     <button
                         onClick={fillMissingValues}
                         disabled={!problemsDetected}
-                        className="flex items-center justify-center gap-2 px-4 py-3 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
                     >
                         <Wand2 className="w-4 h-4" />
                         Remplir valeurs manquantes
@@ -352,7 +429,7 @@ const DataCleaningLab = () => {
                     <button
                         onClick={fixOutliers}
                         disabled={!problemsDetected}
-                        className="flex items-center justify-center gap-2 px-4 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
                     >
                         <AlertTriangle className="w-4 h-4" />
                         Corriger aberrations
@@ -361,7 +438,7 @@ const DataCleaningLab = () => {
                     <button
                         onClick={normalizeFormats}
                         disabled={!problemsDetected}
-                        className="flex items-center justify-center gap-2 px-4 py-3 bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
                     >
                         <Sparkles className="w-4 h-4" />
                         Normaliser formats
@@ -371,10 +448,10 @@ const DataCleaningLab = () => {
 
             {/* Légende des couleurs */}
             {problemsDetected && (
-                <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 animate-in fade-in slide-in-from-top-2">
                     <h4 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
                         <Info className="w-4 h-4" />
-                        Légende des couleurs
+                        Légende (Survole les cases pour voir l'aide)
                     </h4>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                         <div className="flex items-center gap-2">
@@ -398,7 +475,7 @@ const DataCleaningLab = () => {
             )}
 
             {/* Tableau de données */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden relative">
                 <div className="overflow-x-auto">
                     <table className="w-full">
                         <thead className="bg-slate-50 border-b border-slate-200">
@@ -416,30 +493,59 @@ const DataCleaningLab = () => {
                             {dataset.map((row, index) => (
                                 <tr
                                     key={index}
-                                    className={`hover:bg-slate-50 transition-colors ${detectedProblems[index]?.isDuplicate ? 'bg-purple-50' : ''}`}
+                                    className={`group hover:bg-slate-50 transition-colors ${detectedProblems[index]?.isDuplicate ? 'bg-purple-50' : ''}`}
                                 >
-                                    <td className="px-4 py-3 text-sm text-slate-900">{row.id}</td>
-                                    <td className={`px-4 py-3 text-sm border ${getProblemColor(detectedProblems[index]?.nom)}`}>
-                                        {row.nom || <span className="text-slate-400 italic">vide</span>}
-                                    </td>
-                                    <td className={`px-4 py-3 text-sm border ${getProblemColor(detectedProblems[index]?.email)}`}>
-                                        {row.email || <span className="text-slate-400 italic">vide</span>}
-                                    </td>
-                                    <td className={`px-4 py-3 text-sm border ${getProblemColor(detectedProblems[index]?.age)}`}>
-                                        {row.age ?? <span className="text-slate-400 italic">vide</span>}
-                                    </td>
-                                    <td className={`px-4 py-3 text-sm border ${getProblemColor(detectedProblems[index]?.ville)}`}>
-                                        {row.ville || <span className="text-slate-400 italic">vide</span>}
-                                    </td>
-                                    <td className={`px-4 py-3 text-sm border ${getProblemColor(detectedProblems[index]?.salaire)}`}>
-                                        {row.salaire !== null && row.salaire !== undefined
-                                            ? `${row.salaire}€`
-                                            : <span className="text-slate-400 italic">vide</span>
-                                        }
-                                    </td>
-                                    <td className={`px-4 py-3 text-sm border ${getProblemColor(detectedProblems[index]?.dateInscription)}`}>
-                                        {row.dateInscription || <span className="text-slate-400 italic">vide</span>}
-                                    </td>
+                                    <td className="px-4 py-3 text-sm text-slate-500">{row.id}</td>
+
+                                    {['nom', 'email', 'age', 'ville', 'salaire', 'dateInscription'].map((key) => {
+                                        const problems = detectedProblems[index]?.[key];
+                                        const hasProblem = problems && problems.length > 0;
+                                        const isEditing = editingCell?.rowIndex === index && editingCell?.key === key;
+
+                                        return (
+                                            <td
+                                                key={key}
+                                                className={`px-4 py-3 text-sm border-b border-r border-slate-100 relative cursor-pointer transition-colors
+                                                    ${getProblemColor(problems)}
+                                                    ${!isEditing && 'hover:bg-slate-100'}
+                                                `}
+                                                onClick={() => !isEditing && handleCellClick(index, key, row[key])}
+                                                onMouseEnter={() => hasProblem && setHoveredProblem({ rowIndex: index, key, type: problems })}
+                                                onMouseLeave={() => setHoveredProblem(null)}
+                                            >
+                                                {isEditing ? (
+                                                    <div className="flex items-center gap-1 absolute inset-0 bg-white p-1 z-20 shadow-md">
+                                                        <input
+                                                            autoFocus
+                                                            type={key === 'age' || key === 'salaire' ? 'number' : 'text'}
+                                                            className="w-full h-full px-2 py-1 text-sm border border-blue-400 rounded outline-none"
+                                                            value={editingCell.value ?? ''}
+                                                            onChange={handleCellChange}
+                                                            onKeyDown={handleKeyDown}
+                                                            onBlur={handleCellSave}
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center justify-between gap-2 min-h-[20px]">
+                                                        <span className={row[key] === null || row[key] === undefined || row[key] === '' ? 'text-slate-400 italic' : ''}>
+                                                            {key === 'salaire' && row[key] !== null ? `${row[key]}€` : (row[key] ?? 'vide')}
+                                                        </span>
+                                                        {hasProblem && (
+                                                            <AlertTriangle className="w-3 h-3 text-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Tooltip */}
+                                                {hoveredProblem?.rowIndex === index && hoveredProblem?.key === key && (
+                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-800 text-white text-xs p-2 rounded shadow-lg z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-200">
+                                                        {getTooltipMessage(problems)}
+                                                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-800"></div>
+                                                    </div>
+                                                )}
+                                            </td>
+                                        );
+                                    })}
                                 </tr>
                             ))}
                         </tbody>
@@ -456,8 +562,8 @@ const DataCleaningLab = () => {
                     </h3>
                     <div className="grid md:grid-cols-2 gap-3">
                         {badges.map(badge => (
-                            <div key={badge} className="bg-white rounded-lg p-4 border border-yellow-200 flex items-center gap-3 animate-in fade-in duration-300">
-                                <span className="text-3xl">{badgeInfo[badge].icon}</span>
+                            <div key={badge} className="bg-white rounded-lg p-4 border border-yellow-200 flex items-center gap-3 animate-in fade-in zoom-in-95 duration-500">
+                                <span className="text-3xl animate-bounce">{badgeInfo[badge].icon}</span>
                                 <div>
                                     <h4 className="font-semibold text-slate-900">{badgeInfo[badge].title}</h4>
                                     <p className="text-sm text-slate-600">{badgeInfo[badge].desc}</p>
@@ -470,7 +576,7 @@ const DataCleaningLab = () => {
 
             {/* Rapport final */}
             {qualityScore >= 95 && (
-                <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl p-6 text-white">
+                <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl p-6 text-white animate-in fade-in slide-in-from-bottom-4 duration-700">
                     <h3 className="text-2xl font-bold mb-3 flex items-center gap-2">
                         <Award className="w-6 h-6" />
                         🎉 Félicitations !
@@ -479,7 +585,7 @@ const DataCleaningLab = () => {
                         Tu as atteint un score de qualité de <strong>{qualityScore}%</strong> !
                         Ton dataset est maintenant propre et prêt à être utilisé pour du Machine Learning.
                     </p>
-                    <div className="bg-white/20 rounded-lg p-4">
+                    <div className="bg-white/20 rounded-lg p-4 backdrop-blur-sm">
                         <p className="text-sm font-semibold mb-2">📊 Résumé :</p>
                         <ul className="text-sm space-y-1">
                             <li>• {stats.total} problèmes détectés au total</li>

@@ -7,6 +7,7 @@ import WhatIsIntelligence from './components/courses/WhatIsIntelligence';
 import AITimelineLab from './components/courses/AITimelineLab';
 import DataTheFuel from './components/courses/DataTheFuel';
 import DataCleaningLab from './components/courses/DataCleaningLab';
+import TheThreePillars from './components/courses/TheThreePillars';
 
 
 export default function LearningPlatform() {
@@ -78,6 +79,8 @@ export default function LearningPlatform() {
                 <DataTheFuel />
               ) : activeSection.id === 'mod1-lab2' ? (
                 <DataCleaningLab />
+              ) : activeSection.id === 'mod1-theory3' ? (
+                <TheThreePillars />
               ) : activeSection.id === 'ml-3' ? (
                 // Exemple : Si c'est la section 'ml-3', on pourrait afficher ton composant précédent ici
                 <ContentPlaceholder title={activeSection.title} type={activeSection.type} />
